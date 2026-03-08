@@ -35,6 +35,7 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
   const [isGenerating, setIsGenerating] = useState(false)
   const [errors, setErrors] = useState<string[] | null>(null)
   const [autoPlayTrigger, setAutoPlayTrigger] = useState(0)
+  const [voiceStopTrigger, setVoiceStopTrigger] = useState(0)
 
   const temperature = settings.temperature
   const topK = settings.topK
@@ -80,6 +81,7 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
   const onSubmit = async (values: ChatFormValues) => {
     if (!values.message.trim()) return
 
+    setVoiceStopTrigger((t) => t + 1)
     setIsGenerating(true)
     setStatusMessage("Processando sua pergunta...")
     setResponseEnglish("")
@@ -100,8 +102,10 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
       )) {
         if (aiService.isAborted()) break
         fullResponse += chunk
-        setResponseEnglish(fullResponse)
+        setResponseEnglish(fullResponse.replace(/😊/g, ""))
       }
+
+      fullResponse = fullResponse.replace(/😊/g, "")
 
       if (fullResponse && !aiService.isAborted()) {
         if (listenLang === "en") {
@@ -110,7 +114,7 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
           setStatusMessage("Traduzindo resposta...")
           try {
             await translationService.initialize()
-            const translated = await translationService.translateTo(fullResponse, listenLang)
+            const translated = (await translationService.translateTo(fullResponse, listenLang)).replace(/😊/g, "")
             setResponseTranslated(translated)
           } catch (err) {
             console.warn("Tradução indisponível, exibindo em inglês:", err)
@@ -177,6 +181,7 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
                 onInterimTranscript={setMessageFromVoice}
                 disabled={isGenerating}
                 lang={LANG_TO_SPEECH_CODE[speakLang]}
+                stopTrigger={voiceStopTrigger}
               />
             </div>
             {form.formState.errors.message && (

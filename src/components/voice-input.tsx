@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Mic, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SpeechService } from "@/lib/services/speechService"
@@ -14,6 +14,8 @@ interface VoiceInputProps {
   onRecordingStart?: () => void
   /** Chamado em tempo real com o texto conforme a pessoa fala */
   onInterimTranscript?: (text: string) => void
+  /** Quando este valor muda (ex.: ao clicar em Enviar), a captura de voz é interrompida */
+  stopTrigger?: number
 }
 
 export function VoiceInput({
@@ -22,10 +24,18 @@ export function VoiceInput({
   lang = "en-US",
   onRecordingStart,
   onInterimTranscript,
+  stopTrigger,
 }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false)
   const speechServiceRef = useRef<SpeechService | null>(null)
   if (!speechServiceRef.current) speechServiceRef.current = new SpeechService()
+
+  useEffect(() => {
+    if (stopTrigger != null && stopTrigger > 0 && speechServiceRef.current) {
+      speechServiceRef.current.stopListening()
+      setIsListening(false)
+    }
+  }, [stopTrigger])
 
   const handleClick = () => {
     const svc = speechServiceRef.current!
