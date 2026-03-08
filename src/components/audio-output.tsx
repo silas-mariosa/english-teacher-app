@@ -23,7 +23,7 @@ export function AudioOutput({ text, lang = "pt-BR", disabled }: AudioOutputProps
   return (
     <Button
       type="button"
-      variant="ghost"
+      variant="destructive"
       size="icon"
       onClick={handlePlay}
       disabled={disabled || !text.trim()}

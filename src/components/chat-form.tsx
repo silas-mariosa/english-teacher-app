@@ -11,74 +11,117 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { VoiceInput } from "@/components/voice-input"
-import { AudioOutput } from "@/components/audio-output"
+import { ResponseTextWithAudio } from "@/components/response-text-with-audio"
+import { saveSettings, LISTEN_LANG_LABELS, LANG_TO_SPEECH_CODE, type AppSettings } from "@/lib/settings"
 
-export function ChatForm() {
-  const [output, setOutput] = useState("")
+type ModelParams = {
+  maxTemperature: number
+  maxTopK: number
+}
+
+interface ChatFormProps {
+  /** Mesma instância de AIService usada na tela de boas-vindas (evita erro "unable to create session") */
+  aiService: AIService
+  settings: AppSettings
+  onSettingsChange: (settings: AppSettings) => void
+  onBackToWelcome?: () => void
+  modelParams: ModelParams | null
+}
+
+export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcome, modelParams }: ChatFormProps) {
+  const [responseEnglish, setResponseEnglish] = useState("")
+  const [responseTranslated, setResponseTranslated] = useState("")
+  const [statusMessage, setStatusMessage] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [errors, setErrors] = useState<string[] | null>(null)
+  const [autoPlayTrigger, setAutoPlayTrigger] = useState(0)
 
-  const aiServiceRef = useRef<AIService | null>(null)
+  const temperature = settings.temperature
+  const topK = settings.topK
+  const speakLang = settings.speakLang
+  const listenLang = settings.listenLang
+
   const translationServiceRef = useRef<TranslationService | null>(null)
-  if (!aiServiceRef.current) aiServiceRef.current = new AIService()
   if (!translationServiceRef.current) translationServiceRef.current = new TranslationService()
-  const aiService = aiServiceRef.current
   const translationService = translationServiceRef.current
 
   useEffect(() => {
     aiService.checkRequirements().then((errs) => {
       if (errs) setErrors(errs)
+      else setErrors(null)
     })
   }, [aiService])
+
+  const persistSettings = useCallback(
+    (next: Partial<AppSettings>) => {
+      const updated = { ...settings, ...next }
+      saveSettings(updated)
+      onSettingsChange(updated)
+    },
+    [settings, onSettingsChange]
+  )
 
   const form = useForm<ChatFormValues>({
     resolver: zodResolver(chatSchema),
     defaultValues: { message: "" },
   })
 
-  const appendToMessage = useCallback(
+  const setMessageFromVoice = useCallback(
     (text: string) => {
-      const current = form.getValues("message")
-      form.setValue("message", current ? `${current} ${text}` : text)
+      form.setValue("message", text)
     },
     [form]
   )
+
+  const clearMessage = useCallback(() => {
+    form.setValue("message", "")
+  }, [form])
 
   const onSubmit = async (values: ChatFormValues) => {
     if (!values.message.trim()) return
 
     setIsGenerating(true)
-    setOutput("Processando sua pergunta...")
+    setStatusMessage("Processando sua pergunta...")
+    setResponseEnglish("")
+    setResponseTranslated("")
 
     try {
-      await translationService.initialize()
-    } catch (err) {
-      console.warn("Translation init skipped:", err)
-    }
-
-    try {
-      setOutput("")
+      setStatusMessage("")
       let fullResponse = ""
-      const params = await aiService.getParams()
+
+      // API do Chrome exige verificação de availability() imediatamente antes de createSession
+      await aiService.ensureAvailable()
 
       for await (const chunk of aiService.createSession(
         values.message.trim(),
-        params.defaultTemperature ?? 0.5,
-        params.defaultTopK ?? 40,
+        temperature,
+        topK,
         null
       )) {
         if (aiService.isAborted()) break
         fullResponse += chunk
-        setOutput(fullResponse)
+        setResponseEnglish(fullResponse)
       }
 
       if (fullResponse && !aiService.isAborted()) {
-        setOutput("Traduzindo resposta...")
-        const translated = await translationService.translateToPortuguese(fullResponse)
-        setOutput(translated)
+        if (listenLang === "en") {
+          setResponseTranslated(fullResponse)
+        } else {
+          setStatusMessage("Traduzindo resposta...")
+          try {
+            await translationService.initialize()
+            const translated = await translationService.translateTo(fullResponse, listenLang)
+            setResponseTranslated(translated)
+          } catch (err) {
+            console.warn("Tradução indisponível, exibindo em inglês:", err)
+            setResponseTranslated(fullResponse)
+          }
+          setStatusMessage("")
+        }
+        setAutoPlayTrigger(Date.now())
       }
     } catch (error) {
-      setOutput(`Erro: ${(error as Error).message}`)
+      setStatusMessage(`Erro: ${(error as Error).message}`)
     }
 
     setIsGenerating(false)
@@ -92,10 +135,19 @@ export function ChatForm() {
   return (
     <Card className="w-full max-w-2xl">
       <CardHeader>
-        <CardTitle>Professor de Inglês com IA</CardTitle>
-        <CardDescription>
-          Digite ou fale para praticar inglês. A IA responde em texto e você pode ouvir a resposta.
-        </CardDescription>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <CardTitle>Professor de Inglês com IA</CardTitle>
+            <CardDescription>
+              Falando em {settings.speakLang === "en" ? "inglês" : settings.speakLang === "pt" ? "português" : "italiano"} · Escutando em {LISTEN_LANG_LABELS[listenLang]}.
+            </CardDescription>
+          </div>
+          {onBackToWelcome && (
+            <Button type="button" variant="ghost" size="sm" onClick={onBackToWelcome}>
+              Alterar idiomas
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {errors && (
@@ -105,6 +157,8 @@ export function ChatForm() {
             ))}
           </div>
         )}
+
+
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
@@ -118,8 +172,11 @@ export function ChatForm() {
                 disabled={isGenerating}
               />
               <VoiceInput
-                onTranscript={appendToMessage}
+                onTranscript={setMessageFromVoice}
+                onRecordingStart={clearMessage}
+                onInterimTranscript={setMessageFromVoice}
                 disabled={isGenerating}
+                lang={LANG_TO_SPEECH_CODE[speakLang]}
               />
             </div>
             {form.formState.errors.message && (
@@ -145,17 +202,34 @@ export function ChatForm() {
           )}
         </form>
 
-        {output && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Resposta</Label>
-              <AudioOutput text={output} lang="pt-BR" />
-            </div>
-            <div className="rounded-md border bg-muted/50 p-4 text-sm whitespace-pre-wrap">
-              {output}
-            </div>
+        {statusMessage && (
+          <div className="rounded-md border bg-muted/50 p-4 text-sm text-muted-foreground">
+            {statusMessage}
           </div>
         )}
+
+        {/* Uma única resposta: em inglês se escolheu escutar em inglês, senão no idioma escolhido (ex.: italiano). Auto-play com destaque por palavra. */}
+        <div className="space-y-6">
+          {listenLang === "en" ? (
+            <ResponseTextWithAudio
+              title="Resposta em inglês"
+              text={responseEnglish}
+              lang="en-US"
+              disabled={isGenerating}
+              placeholder="—"
+              autoPlayTrigger={autoPlayTrigger}
+            />
+          ) : (
+            <ResponseTextWithAudio
+              title={`Resposta em ${LISTEN_LANG_LABELS[listenLang]}`}
+              text={responseTranslated}
+              lang={LANG_TO_SPEECH_CODE[listenLang]}
+              disabled={isGenerating}
+              placeholder={isGenerating ? "Aguarde a tradução..." : "—"}
+              autoPlayTrigger={autoPlayTrigger}
+            />
+          )}
+        </div>
       </CardContent>
     </Card>
   )

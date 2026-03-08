@@ -8,9 +8,21 @@ import { SpeechService } from "@/lib/services/speechService"
 interface VoiceInputProps {
   onTranscript: (text: string) => void
   disabled?: boolean
+  /** Código do idioma para reconhecimento de voz (ex: "en-US", "pt-BR", "it-IT") */
+  lang?: string
+  /** Chamado ao iniciar a gravação (ex.: para limpar o campo) */
+  onRecordingStart?: () => void
+  /** Chamado em tempo real com o texto conforme a pessoa fala */
+  onInterimTranscript?: (text: string) => void
 }
 
-export function VoiceInput({ onTranscript, disabled }: VoiceInputProps) {
+export function VoiceInput({
+  onTranscript,
+  disabled,
+  lang = "en-US",
+  onRecordingStart,
+  onInterimTranscript,
+}: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false)
   const speechServiceRef = useRef<SpeechService | null>(null)
   if (!speechServiceRef.current) speechServiceRef.current = new SpeechService()
@@ -22,6 +34,7 @@ export function VoiceInput({ onTranscript, disabled }: VoiceInputProps) {
       setIsListening(false)
       return
     }
+    onRecordingStart?.()
     setIsListening(true)
     svc.startListening(
       (text) => {
@@ -31,7 +44,9 @@ export function VoiceInput({ onTranscript, disabled }: VoiceInputProps) {
       (error) => {
         console.error("Speech recognition error:", error)
         setIsListening(false)
-      }
+      },
+      lang,
+      onInterimTranscript
     )
   }
 

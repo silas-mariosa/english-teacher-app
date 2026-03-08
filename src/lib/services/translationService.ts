@@ -3,84 +3,81 @@
 type TranslatorInstance = { translateStreaming: (text: string) => AsyncIterable<string> };
 type LanguageDetectorInstance = { detect: (text: string) => Promise<Array<{ detectedLanguage: string }>> };
 
+export type TranslationTarget = "pt" | "it"
+
 export class TranslationService {
-  private translator: TranslatorInstance | null = null;
+  private translators: Partial<Record<TranslationTarget, TranslatorInstance>> = {};
   private languageDetector: LanguageDetectorInstance | null = null;
-  private initializationPromise: Promise<boolean> | null = null;
+  private initDetectorPromise: Promise<void> | null = null;
 
   async initialize(): Promise<void> {
-    if (this.initializationPromise) {
-      await this.initializationPromise;
+    if (this.initDetectorPromise) {
+      await this.initDetectorPromise;
       return;
     }
-    this.initializationPromise = this._doInitialize();
-    await this.initializationPromise;
+    this.initDetectorPromise = this._initDetector();
+    await this.initDetectorPromise;
   }
 
-  private async _doInitialize(): Promise<boolean> {
-    if (typeof window === "undefined") {
-      throw new Error("TranslationService must run in browser");
-    }
-    const Translator = (window as unknown as { Translator?: { create: (opts: unknown) => Promise<unknown> } }).Translator;
+  private async _initDetector(): Promise<void> {
+    if (typeof window === "undefined") throw new Error("TranslationService must run in browser");
     const LanguageDetector = (window as unknown as { LanguageDetector?: { create: () => Promise<unknown> } }).LanguageDetector;
-
-    if (!Translator || !LanguageDetector) {
-      throw new Error("APIs de tradução não disponíveis. Ative as flags em chrome://flags/");
-    }
-
-    this.translator = (await Translator.create({
-      sourceLanguage: "en",
-      targetLanguage: "pt",
-      monitor(m: { addEventListener: (e: string, cb: (ev: { loaded: number; total: number }) => void) => void }) {
-        m.addEventListener("downloadprogress", (e: { loaded: number; total: number }) => {
-          const percent = ((e.loaded / e.total) * 100).toFixed(0);
-          console.log(`Translator downloaded ${percent}%`);
-        });
-      },
-    })) as TranslatorInstance;
-    console.log("Translator initialized");
-
+    if (!LanguageDetector) throw new Error("Language Detector API não disponível.");
     this.languageDetector = (await LanguageDetector.create()) as LanguageDetectorInstance;
-    console.log("Language Detector initialized");
-
-    return true;
   }
 
-  async translateToPortuguese(text: string): Promise<string> {
-    if (!this.translator) {
-      try {
-        await this.initialize();
-      } catch (error) {
-        console.warn("Translator not available, returning original text:", (error as Error).message);
-        return text;
-      }
+  private async getTranslator(target: TranslationTarget): Promise<TranslatorInstance | null> {
+    if (this.translators[target]) return this.translators[target] ?? null;
+    if (typeof window === "undefined" || !(window as unknown as { Translator?: unknown }).Translator) return null;
+    const Translator = (window as unknown as { Translator: { create: (opts: unknown) => Promise<unknown> } }).Translator;
+    try {
+      const instance = (await Translator.create({
+        sourceLanguage: "en",
+        targetLanguage: target,
+        monitor(m: { addEventListener: (e: string, cb: (ev: { loaded: number; total: number }) => void) => void }) {
+          m.addEventListener("downloadprogress", () => {});
+        },
+      })) as TranslatorInstance;
+      this.translators[target] = instance;
+      return instance;
+    } catch (e) {
+      console.warn(`Translator en→${target} not available:`, e);
+      return null;
     }
+  }
 
-    if (!this.translator) {
-      console.warn("Translator not available, returning original text");
+  /** Traduz texto do inglês para o idioma alvo (pt ou it). */
+  async translateTo(text: string, target: TranslationTarget): Promise<string> {
+    try {
+      await this.initialize();
+    } catch (e) {
+      console.warn("Translation init skipped:", e);
       return text;
     }
+
+    const translator = await this.getTranslator(target);
+    if (!translator) return text;
 
     try {
       if (this.languageDetector) {
         const detectionResults = await this.languageDetector.detect(text);
-        console.log("Detected languages:", detectionResults);
-        if (detectionResults?.[0]?.detectedLanguage === "pt") {
-          console.log("Text is already in Portuguese");
-          return text;
-        }
+        const detected = detectionResults?.[0]?.detectedLanguage;
+        if (detected === target || detected === (target === "pt" ? "pt-BR" : "it")) return text;
       }
-
-      const stream = this.translator.translateStreaming(text);
+      const stream = translator.translateStreaming(text);
       let translated = "";
       for await (const chunk of stream) {
-        translated = chunk;
+        translated += chunk;
       }
-      console.log("Translated text:", translated);
-      return translated;
+      return translated.trim() || text;
     } catch (error) {
       console.error("Translation error:", error);
       return text;
     }
+  }
+
+  /** Mantido por compatibilidade: traduz para português. */
+  async translateToPortuguese(text: string): Promise<string> {
+    return this.translateTo(text, "pt");
   }
 }

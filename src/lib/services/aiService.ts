@@ -9,45 +9,85 @@ declare global {
         expectedOutputs: Array<{ type: string; languages?: string[] }>;
         temperature: number;
         topK: number;
-        initialPrompts: Array<{ role: string; content: Array<{ type: string; value: string }> }>;
-        monitor?: (m: { addEventListener: (e: string, cb: (ev: { loaded: number; total: number }) => void) => void }) => void;
+        initialPrompts: Array<{
+          role: string;
+          content: Array<{ type: string; value: string }>;
+        }>;
+        monitor?: (m: {
+          addEventListener: (
+            e: string,
+            cb: (ev: { loaded: number; total: number }) => void,
+          ) => void;
+        }) => void;
       }) => Promise<{
         destroy: () => void;
-        promptStreaming: (messages: unknown[], opts: { signal: AbortSignal }) => Promise<AsyncIterable<string>>;
+        promptStreaming: (
+          messages: unknown[],
+          opts: { signal: AbortSignal },
+        ) => Promise<AsyncIterable<string>>;
         prompt: (text: string) => Promise<string>;
       }>;
-      params: () => Promise<{ defaultTemperature: number; maxTemperature: number; defaultTopK: number; maxTopK: number }>;
+      params: () => Promise<{
+        defaultTemperature: number;
+        maxTemperature: number;
+        defaultTopK: number;
+        maxTopK: number;
+      }>;
     };
     Translator?: {
-      availability: (opts: { sourceLanguage: string; targetLanguage: string }) => Promise<string>;
+      availability: (opts: {
+        sourceLanguage: string;
+        targetLanguage: string;
+      }) => Promise<string>;
       create: (opts: {
         sourceLanguage: string;
         targetLanguage: string;
-        monitor?: (m: { addEventListener: (e: string, cb: (ev: { loaded: number; total: number }) => void) => void }) => void;
-      }) => Promise<{ translateStreaming: (text: string) => AsyncIterable<string> }>;
+        monitor?: (m: {
+          addEventListener: (
+            e: string,
+            cb: (ev: { loaded: number; total: number }) => void,
+          ) => void;
+        }) => void;
+      }) => Promise<{
+        translateStreaming: (text: string) => AsyncIterable<string>;
+      }>;
     };
     LanguageDetector?: {
-      create: () => Promise<{ detect: (text: string) => Promise<Array<{ detectedLanguage: string }>> }>;
+      create: () => Promise<{
+        detect: (text: string) => Promise<Array<{ detectedLanguage: string }>>;
+      }>;
     };
   }
 }
 
 export class AIService {
-  private session: Awaited<ReturnType<NonNullable<typeof window.LanguageModel>["create"]>> | null = null;
+  private session: Awaited<
+    ReturnType<NonNullable<typeof window.LanguageModel>["create"]>
+  > | null = null;
   private abortController: AbortController | null = null;
 
   async checkRequirements(): Promise<string[] | null> {
     const errors: string[] = [];
 
-    const isChrome = typeof window !== "undefined" && !!(window as { chrome?: unknown }).chrome;
+    const isChrome =
+      typeof window !== "undefined" &&
+      !!(window as { chrome?: unknown }).chrome;
     if (!isChrome) {
-      errors.push("⚠️ Este recurso só funciona no Google Chrome ou Chrome Canary (versão recente).");
+      errors.push(
+        "⚠️ Este recurso só funciona no Google Chrome ou Chrome Canary (versão recente).",
+      );
     }
 
-    if (typeof window === "undefined" || !("LanguageModel" in window) || !window.LanguageModel) {
+    if (
+      typeof window === "undefined" ||
+      !("LanguageModel" in window) ||
+      !window.LanguageModel
+    ) {
       errors.push("⚠️ As APIs nativas de IA não estão ativas.");
       errors.push("Ative a seguinte flag em chrome://flags/:");
-      errors.push("- Prompt API for Gemini Nano (chrome://flags/#prompt-api-for-gemini-nano)");
+      errors.push(
+        "- Prompt API for Gemini Nano (chrome://flags/#prompt-api-for-gemini-nano)",
+      );
       errors.push("Depois reinicie o Chrome e tente novamente.");
       return errors;
     }
@@ -59,7 +99,9 @@ export class AIService {
       });
       console.log("Translator Availability:", translatorAvailability);
       if (translatorAvailability === "no") {
-        errors.push("⚠️ Tradução de inglês para português não está disponível.");
+        errors.push(
+          "⚠️ Tradução de inglês para português não está disponível.",
+        );
       }
     } else {
       errors.push("⚠️ A API de Tradução não está ativa.");
@@ -70,14 +112,18 @@ export class AIService {
     if (!("LanguageDetector" in window)) {
       errors.push("⚠️ A API de Detecção de Idioma não está ativa.");
       errors.push("Ative a seguinte flag em chrome://flags/:");
-      errors.push("- Language Detection API (chrome://flags/#language-detector-api)");
+      errors.push(
+        "- Language Detection API (chrome://flags/#language-detector-api)",
+      );
     }
 
     if (errors.length > 0) {
       return errors;
     }
 
-    const availability = await window.LanguageModel!.availability({ languages: ["en"] });
+    const availability = await window.LanguageModel!.availability({
+      languages: ["en"],
+    });
     console.log("Language Model Availability:", availability);
 
     if (availability === "available") {
@@ -85,33 +131,52 @@ export class AIService {
     }
 
     if (availability === "unavailable") {
-      errors.push("⚠️ O seu dispositivo não suporta modelos de linguagem nativos de IA.");
+      errors.push(
+        "⚠️ O modelo de IA (Gemini Nano) está indisponível neste dispositivo.",
+      );
+      errors.push("Possíveis causas:");
+      errors.push("• Requisitos: 16 GB RAM, 4+ núcleos de CPU (ou GPU com 4+ GB VRAM), ~2 GB livres em disco.");
+      errors.push("• Celular/tablet: o modelo não é suportado em dispositivos móveis.");
+      errors.push("• Ative também: chrome://flags/#optimization-guide-on-device-model");
+      errors.push("• Verifique o status em: chrome://on-device-internals");
     }
 
     if (availability === "downloading") {
-      errors.push("⚠️ O modelo de linguagem de IA está sendo baixado. Por favor, aguarde alguns minutos e tente novamente.");
+      errors.push(
+        "⚠️ O modelo de linguagem de IA está sendo baixado. Por favor, aguarde alguns minutos e tente novamente.",
+      );
     }
 
     if (availability === "downloadable") {
-      errors.push("⚠️ O modelo de linguagem de IA precisa ser baixado, baixando agora...");
+      errors.push(
+        "⚠️ O modelo de linguagem de IA precisa ser baixado, baixando agora...",
+      );
       try {
         const session = await window.LanguageModel!.create({
-          expectedInputLanguages: ["en"],
-          expectedInputs: [{ type: "text", languages: ["en"] }],
+          expectedInputs: [
+            { type: "text", languages: ["en"] },
+            { type: "audio" },
+            { type: "image" },
+          ],
           expectedOutputs: [{ type: "text", languages: ["en"] }],
           temperature: 0.5,
           topK: 40,
           initialPrompts: [],
           monitor(m) {
-            m.addEventListener("downloadprogress", (e: { loaded: number; total: number }) => {
-              const percent = ((e.loaded / e.total) * 100).toFixed(0);
-              console.log(`Downloaded ${percent}%`);
-            });
+            m.addEventListener(
+              "downloadprogress",
+              (e: { loaded: number; total: number }) => {
+                const percent = ((e.loaded / e.total) * 100).toFixed(0);
+                console.log(`Downloaded ${percent}%`);
+              },
+            );
           },
-        } as Parameters<typeof window.LanguageModel.create>[0]);
+        });
         await session.prompt("Hello");
         session.destroy();
-        const newAvailability = await window.LanguageModel!.availability({ languages: ["en"] });
+        const newAvailability = await window.LanguageModel!.availability({
+          languages: ["en"],
+        });
         if (newAvailability === "available") {
           return null;
         }
@@ -125,17 +190,52 @@ export class AIService {
   }
 
   async getParams() {
-    if (typeof window === "undefined" || !window.LanguageModel) return { defaultTemperature: 0.5, maxTemperature: 2, defaultTopK: 40, maxTopK: 100 };
+    if (typeof window === "undefined" || !window.LanguageModel)
+      return {
+        defaultTemperature: 0.5,
+        maxTemperature: 2,
+        defaultTopK: 40,
+        maxTopK: 100,
+      };
     const params = await window.LanguageModel.params();
     console.log("Language Model Params:", params);
     return params;
+  }
+
+  /**
+   * Verifica disponibilidade e lança se o modelo não estiver pronto.
+   * Chamar logo antes de createSession() para satisfazer a API do Chrome.
+   */
+  async ensureAvailable(): Promise<void> {
+    if (typeof window === "undefined" || !window.LanguageModel) {
+      throw new Error("Modelo de IA não disponível neste ambiente.");
+    }
+    const availability = await window.LanguageModel.availability({ languages: ["en"] });
+    if (availability !== "available") {
+      if (availability === "unavailable") {
+        throw new Error(
+          "O modelo de IA não está disponível neste dispositivo. Tente em outro computador ou verifique as flags do Chrome.",
+        );
+      }
+      if (availability === "downloading") {
+        throw new Error(
+          "O modelo ainda está sendo baixado. Aguarde alguns minutos e tente novamente.",
+        );
+      }
+      if (availability === "downloadable") {
+        throw new Error(
+          "O modelo precisa ser baixado. Feche outras abas, recarregue a página e aguarde o download iniciar.",
+        );
+      }
+      throw new Error("O modelo de IA não está pronto. Status: " + availability);
+    }
   }
 
   async *createSession(
     question: string,
     temperature: number,
     topK: number,
-    file: File | null = null
+    file: File | null = null,
   ): AsyncGenerator<string> {
     if (typeof window === "undefined" || !window.LanguageModel) return;
 
@@ -172,7 +272,9 @@ export class AIService {
       ],
     });
 
-    const contentArray: Array<{ type: string; value: string | Blob }> = [{ type: "text", value: question }];
+    const contentArray: Array<{ type: string; value: string | Blob }> = [
+      { type: "text", value: question },
+    ];
 
     if (file) {
       const fileType = file.type.split("/")[0];
@@ -185,7 +287,7 @@ export class AIService {
 
     const responseStream = await this.session.promptStreaming(
       [{ role: "user", content: contentArray }],
-      { signal: this.abortController.signal }
+      { signal: this.abortController.signal },
     );
 
     for await (const chunk of responseStream) {
