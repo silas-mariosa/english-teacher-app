@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useMemo, useEffect } from "react"
-import { Volume2 } from "lucide-react"
+import { Volume2, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SpeechService } from "@/lib/services/speechService"
 import { cn } from "@/lib/utils"
@@ -63,6 +63,7 @@ export function ResponseTextWithAudio({
   autoPlayTrigger,
 }: ResponseTextWithAudioProps) {
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
+  const [isSpeaking, setIsSpeaking] = useState(false)
   const speechRef = useRef<SpeechService | null>(null)
   const lastAutoPlayRef = useRef<number>(0)
   if (!speechRef.current) speechRef.current = new SpeechService()
@@ -75,22 +76,36 @@ export function ResponseTextWithAudio({
 
   const handlePlayAll = () => {
     if (isEmpty) return
+    setIsSpeaking(true)
     speechRef.current!.speakWithHighlights(
       cleanedText,
       speechLang,
       (index) => setHighlightedIndex(index >= 0 ? index : null),
-      () => setHighlightedIndex(null)
+      () => {
+        setHighlightedIndex(null)
+        setIsSpeaking(false)
+      }
     )
+  }
+
+  const handlePauseSpeech = () => {
+    speechRef.current?.stop()
+    setHighlightedIndex(null)
+    setIsSpeaking(false)
   }
 
   useEffect(() => {
     if (!autoPlayTrigger || autoPlayTrigger === lastAutoPlayRef.current || !cleanedText.trim()) return
     lastAutoPlayRef.current = autoPlayTrigger
+    setIsSpeaking(true)
     speechRef.current?.speakWithHighlights(
       cleanedText,
       speechLang,
       (index) => setHighlightedIndex(index >= 0 ? index : null),
-      () => setHighlightedIndex(null)
+      () => {
+        setHighlightedIndex(null)
+        setIsSpeaking(false)
+      }
     )
   }, [autoPlayTrigger, cleanedText, speechLang])
 
@@ -121,17 +136,33 @@ export function ResponseTextWithAudio({
         <p className="text-base font-medium leading-none shrink-0" aria-label={title}>
           {title}
         </p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={handlePlayAll}
-          disabled={disabled}
-          aria-label="Ouvir texto completo"
-          className="h-8 w-8 shrink-0"
-        >
-          <Volume2 className="size-4" />
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          {isSpeaking && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handlePauseSpeech}
+              disabled={disabled}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              aria-label="Pausar fala"
+            >
+              <Square className="size-3.5 mr-1" />
+              Pausar fala
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handlePlayAll}
+            disabled={disabled}
+            aria-label="Ouvir texto completo"
+            className="h-8 w-8"
+          >
+            <Volume2 className="size-4" />
+          </Button>
+        </div>
       </div>
       <div
         className={cn(

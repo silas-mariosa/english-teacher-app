@@ -60,17 +60,37 @@ export function VoiceInput({
     )
   }
 
+  const handlePauseListening = () => {
+    speechServiceRef.current?.stopListening()
+    setIsListening(false)
+  }
+
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="icon"
-      onClick={handleClick}
-      disabled={disabled}
-      className={isListening ? "bg-destructive/20 text-destructive" : ""}
-      aria-label={isListening ? "Parar gravação" : "Falar"}
-    >
-      {isListening ? <Square className="size-4" /> : <Mic className="size-4" />}
-    </Button>
+    <div className="flex items-center gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={handleClick}
+        disabled={disabled}
+        className={isListening ? "bg-destructive/20 text-destructive" : ""}
+        aria-label={isListening ? "Parar gravação" : "Falar"}
+      >
+        {isListening ? <Square className="size-4" /> : <Mic className="size-4" />}
+      </Button>
+      {isListening && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handlePauseListening}
+          disabled={disabled}
+          className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Pausar escuta"
+        >
+          Pausar escuta
+        </Button>
+      )}
+    </div>
   )
 }

@@ -41,6 +41,8 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
   const topK = settings.topK
   const speakLang = settings.speakLang
   const listenLang = settings.listenLang
+  /** Idioma da resposta exibida e do áudio: sempre o idioma de escuta (listenLang). */
+  const responseLang = listenLang
 
   const translationServiceRef = useRef<TranslationService | null>(null)
   if (!translationServiceRef.current) translationServiceRef.current = new TranslationService()
@@ -108,13 +110,13 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
       fullResponse = fullResponse.replace(/😊/g, "")
 
       if (fullResponse && !aiService.isAborted()) {
-        if (listenLang === "en") {
+        if (responseLang === "en") {
           setResponseTranslated(fullResponse)
         } else {
           setStatusMessage("Traduzindo resposta...")
           try {
             await translationService.initialize()
-            const translated = (await translationService.translateTo(fullResponse, listenLang)).replace(/😊/g, "")
+            const translated = (await translationService.translateTo(fullResponse, responseLang)).replace(/😊/g, "")
             setResponseTranslated(translated)
           } catch (err) {
             console.warn("Tradução indisponível, exibindo em inglês:", err)
@@ -213,9 +215,9 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
           </div>
         )}
 
-        {/* Uma única resposta: em inglês se escolheu escutar em inglês, senão no idioma escolhido (ex.: italiano). Auto-play com destaque por palavra. */}
+        {/* Uma única resposta: texto e áudio sempre no idioma de escuta (responseLang = listenLang). */}
         <div className="space-y-6">
-          {listenLang === "en" ? (
+          {responseLang === "en" ? (
             <ResponseTextWithAudio
               title="Resposta em inglês"
               text={responseEnglish}
@@ -226,9 +228,9 @@ export function ChatForm({ aiService, settings, onSettingsChange, onBackToWelcom
             />
           ) : (
             <ResponseTextWithAudio
-              title={`Resposta em ${LISTEN_LANG_LABELS[listenLang]}`}
+              title={`Resposta em ${LISTEN_LANG_LABELS[responseLang]}`}
               text={responseTranslated}
-              lang={LANG_TO_SPEECH_CODE[listenLang]}
+              lang={LANG_TO_SPEECH_CODE[responseLang]}
               disabled={isGenerating}
               placeholder={isGenerating ? "Aguarde a tradução..." : "—"}
               autoPlayTrigger={autoPlayTrigger}
