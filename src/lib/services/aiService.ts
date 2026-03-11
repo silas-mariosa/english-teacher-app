@@ -3,7 +3,11 @@ declare global {
   interface Window {
     chrome?: unknown;
     LanguageModel?: {
-      availability: (opts: { languages: string[] }) => Promise<string>;
+      availability: (opts: {
+        languages?: string[];
+        expectedInputs?: Array<{ type: string; languages?: string[] }>;
+        expectedOutputs?: Array<{ type: string; languages?: string[] }>;
+      }) => Promise<string>;
       create: (opts: {
         expectedInputs: Array<{ type: string; languages?: string[] }>;
         expectedOutputs: Array<{ type: string; languages?: string[] }>;
@@ -123,9 +127,9 @@ export class AIService {
 
     const availability = await window.LanguageModel!.availability({
       languages: ["en"],
+      expectedInputs: [{ type: "text", languages: ["en"] }],
     });
     console.log("Language Model Availability:", availability);
-
     if (availability === "available") {
       return null;
     }
@@ -135,9 +139,15 @@ export class AIService {
         "⚠️ O modelo de IA (Gemini Nano) está indisponível neste dispositivo.",
       );
       errors.push("Possíveis causas:");
-      errors.push("• Requisitos: 16 GB RAM, 4+ núcleos de CPU (ou GPU com 4+ GB VRAM), ~2 GB livres em disco.");
-      errors.push("• Celular/tablet: o modelo não é suportado em dispositivos móveis.");
-      errors.push("• Ative também: chrome://flags/#optimization-guide-on-device-model");
+      errors.push(
+        "• Requisitos: 16 GB RAM, 4+ núcleos de CPU (ou GPU com 4+ GB VRAM), ~2 GB livres em disco.",
+      );
+      errors.push(
+        "• Celular/tablet: o modelo não é suportado em dispositivos móveis.",
+      );
+      errors.push(
+        "• Ative também: chrome://flags/#optimization-guide-on-device-model",
+      );
       errors.push("• Verifique o status em: chrome://on-device-internals");
     }
 
@@ -176,6 +186,12 @@ export class AIService {
         session.destroy();
         const newAvailability = await window.LanguageModel!.availability({
           languages: ["en"],
+          expectedInputs: [
+            { type: "text", languages: ["en"] },
+            { type: "audio" },
+            { type: "image" },
+          ],
+          expectedOutputs: [{ type: "text", languages: ["en"] }],
         });
         if (newAvailability === "available") {
           return null;
@@ -202,15 +218,34 @@ export class AIService {
     return params;
   }
 
+  /** Opções de entrada/saída usadas para checar e criar sessão (apenas texto = maior compatibilidade). */
+  private static readonly TEXT_ONLY_IO = {
+    expectedInputs: [{ type: "text", languages: ["en"] }] as Array<{ type: string; languages?: string[] }>,
+    expectedOutputs: [{ type: "text", languages: ["en"] }] as Array<{ type: string; languages?: string[] }>,
+  };
+
+  /** Opções multimodal (texto + áudio + imagem); use só quando for enviar arquivo. */
+  private static readonly MULTIMODAL_IO = {
+    expectedInputs: [
+      { type: "text", languages: ["en"] },
+      { type: "audio" },
+      { type: "image" },
+    ] as Array<{ type: string; languages?: string[] }>,
+    expectedOutputs: [{ type: "text", languages: ["en"] }] as Array<{ type: string; languages?: string[] }>,
+  };
+
   /**
-   * Verifica disponibilidade e lança se o modelo não estiver pronto.
+   * Verifica disponibilidade do modelo com a mesma capacidade que será usada em createSession (texto apenas por padrão).
    * Chamar logo antes de createSession() para satisfazer a API do Chrome.
    */
   async ensureAvailable(): Promise<void> {
     if (typeof window === "undefined" || !window.LanguageModel) {
       throw new Error("Modelo de IA não disponível neste ambiente.");
     }
-    const availability = await window.LanguageModel.availability({ languages: ["en"] });
+    const availability = await window.LanguageModel.availability({
+      languages: ["en"],
+      ...AIService.TEXT_ONLY_IO,
+    });
     if (availability !== "available") {
       if (availability === "unavailable") {
         throw new Error(
@@ -227,7 +262,9 @@ export class AIService {
           "O modelo precisa ser baixado. Feche outras abas, recarregue a página e aguarde o download iniciar.",
         );
       }
-      throw new Error("O modelo de IA não está pronto. Status: " + availability);
+      throw new Error(
+        "O modelo de IA não está pronto. Status: " + availability,
+      );
     }
   }
 
@@ -246,31 +283,40 @@ export class AIService {
       this.session.destroy();
     }
 
-    this.session = await window.LanguageModel.create({
-      expectedInputs: [
-        { type: "text", languages: ["en"] },
-        { type: "audio" },
-        { type: "image" },
-      ],
-      expectedOutputs: [{ type: "text", languages: ["en"] }],
-      temperature,
-      topK,
-      initialPrompts: [
-        {
-          role: "system",
-          content: [
-            {
-              type: "text",
-              value: `You are an English teacher AI assistant. Help students practice and improve their English.
+    // Usar apenas texto quando não há arquivo, para evitar "Model capability is not available" (multimodal exige flag extra).
+    const useMultimodal = !!file;
+    const io = useMultimodal ? AIService.MULTIMODAL_IO : AIService.TEXT_ONLY_IO;
+
+    try {
+      this.session = await window.LanguageModel.create({
+        ...io,
+        temperature,
+        topK,
+        initialPrompts: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "text",
+                value: `You are an English teacher AI assistant. Help students practice and improve their English.
 - Respond clearly and pedagogically.
 - Correct mistakes gently when relevant.
 - Use plain text format, no markdown.
 - Keep responses concise for conversation flow.`,
-            },
-          ],
-        },
-      ],
-    });
+              },
+            ],
+          },
+        ],
+      });
+    } catch (err) {
+      const msg = (err as Error).message || "";
+      if (msg.includes("capability") && msg.includes("not available") && useMultimodal) {
+        throw new Error(
+          "Envio de imagem/áudio não está disponível. Ative a flag 'Prompt API for Gemini Nano with Multimodal Input' em chrome://flags ou use apenas texto.",
+        );
+      }
+      throw err;
+    }
 
     const contentArray: Array<{ type: string; value: string | Blob }> = [
       { type: "text", value: question },
