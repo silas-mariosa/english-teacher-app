@@ -11,15 +11,21 @@ export interface AppSettings {
   listenLang: ListenLang
   temperature: number
   topK: number
+  /** Número de pares pergunta/resposta usados como contexto para a IA (1–50). */
+  contextMessagesCount: number
 }
 
 const STORAGE_KEY = "english-teacher-settings"
+const CONTEXT_MIN = 1
+const CONTEXT_MAX = 50
+const CONTEXT_DEFAULT = 10
 
 const DEFAULT_SETTINGS: AppSettings = {
   speakLang: "en",
   listenLang: "pt",
   temperature: 0.5,
   topK: 40,
+  contextMessagesCount: CONTEXT_DEFAULT,
 }
 
 export function loadSettings(): AppSettings {
@@ -39,6 +45,12 @@ export function loadSettings(): AppSettings {
         typeof parsed.topK === "number" && parsed.topK >= 1 && parsed.topK <= 200
           ? Math.round(parsed.topK)
           : DEFAULT_SETTINGS.topK,
+      contextMessagesCount:
+        typeof parsed.contextMessagesCount === "number" &&
+        parsed.contextMessagesCount >= CONTEXT_MIN &&
+        parsed.contextMessagesCount <= CONTEXT_MAX
+          ? Math.round(parsed.contextMessagesCount)
+          : DEFAULT_SETTINGS.contextMessagesCount,
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -81,3 +93,5 @@ export const LANG_TO_SPEECH_CODE: Record<SpeakLang | ListenLang, string> = {
   pt: "pt-BR",
   it: "it-IT",
 }
+
+export { CONTEXT_MIN, CONTEXT_MAX, CONTEXT_DEFAULT }

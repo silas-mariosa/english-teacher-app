@@ -268,11 +268,24 @@ export class AIService {
     }
   }
 
+  /** Mensagens de contexto (histórico) no formato esperado pela API. A API usa "user" e "assistant" (não "model"). */
+  private formatContextForApi(
+    contextMessages: Array<{ role: "user" | "model"; content: string }>
+  ): Array<{ role: "user" | "assistant"; content: Array<{ type: string; value: string }> }> {
+    return contextMessages.map((m) => ({
+      role: (m.role === "model" ? "assistant" : "user") as "user" | "assistant",
+      content: [{ type: "text" as const, value: m.content }],
+    }))
+  }
+
+  /** Idioma em que a resposta deve ser escrita ("en" = inglês; "it"/"pt" = resposta inteira nesse idioma, sem misturar). */
   async *createSession(
     question: string,
     temperature: number,
     topK: number,
     file: File | null = null,
+    responseLang: "en" | "pt" | "it" = "en",
+    contextMessages: Array<{ role: "user" | "model"; content: string }> = [],
   ): AsyncGenerator<string> {
     if (typeof window === "undefined" || !window.LanguageModel) return;
 
@@ -287,6 +300,25 @@ export class AIService {
     const useMultimodal = !!file;
     const io = useMultimodal ? AIService.MULTIMODAL_IO : AIService.TEXT_ONLY_IO;
 
+    const systemPrompt =
+      responseLang === "it"
+        ? `You are an English teacher AI assistant. The user will read your answer in Italian.
+- Write your ENTIRE response in Italian. Do not mix Italian and English in the same sentence or paragraph.
+- All explanations, instructions, definitions, and descriptions must be in Italian.
+- When you give examples of English grammar or vocabulary, you may show the English phrase in quotes, but explain it only in Italian. Never leave whole sentences or explanations in English.
+- Use plain text format, no markdown. Keep responses concise.`
+        : responseLang === "pt"
+          ? `You are an English teacher AI assistant. The user will read your answer in Portuguese.
+- Write your ENTIRE response in Portuguese. Do not mix Portuguese and English in the same sentence or paragraph.
+- All explanations, instructions, definitions, and descriptions must be in Portuguese.
+- When you give examples of English grammar or vocabulary, you may show the English phrase in quotes, but explain it only in Portuguese. Never leave whole sentences or explanations in English.
+- Use plain text format, no markdown. Keep responses concise.`
+          : `You are an English teacher AI assistant. Help students practice and improve their English.
+- Respond clearly and pedagogically.
+- Correct mistakes gently when relevant.
+- Use plain text format, no markdown.
+- Keep responses concise for conversation flow.`;
+
     try {
       this.session = await window.LanguageModel.create({
         ...io,
@@ -295,16 +327,7 @@ export class AIService {
         initialPrompts: [
           {
             role: "system",
-            content: [
-              {
-                type: "text",
-                value: `You are an English teacher AI assistant. Help students practice and improve their English.
-- Respond clearly and pedagogically.
-- Correct mistakes gently when relevant.
-- Use plain text format, no markdown.
-- Keep responses concise for conversation flow.`,
-              },
-            ],
+            content: [{ type: "text", value: systemPrompt }],
           },
         ],
       });
@@ -331,8 +354,14 @@ export class AIService {
       }
     }
 
+    const historyForApi = this.formatContextForApi(contextMessages);
+    const allMessages = [
+      ...historyForApi,
+      { role: "user" as const, content: contentArray },
+    ];
+
     const responseStream = await this.session.promptStreaming(
-      [{ role: "user", content: contentArray }],
+      allMessages,
       { signal: this.abortController.signal },
     );
 

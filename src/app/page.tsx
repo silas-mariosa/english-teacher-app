@@ -29,27 +29,29 @@ export default function Home() {
   }, [])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <main className="w-full max-w-2xl">
-        {settings === null ? (
-          <WelcomeSettings
-            onStart={setSettings}
-            onCheckModelReady={() => aiRef.current!.checkRequirements()}
-            modelParams={modelParams}
-          />
-        ) : (
-          <ChatForm
-            aiService={aiRef.current}
-            settings={settings}
-            onSettingsChange={setSettings}
-            onBackToWelcome={() => setSettings(null)}
-            modelParams={modelParams}
-          />
-        )}
-        <footer className="mt-8 text-center text-sm text-muted-foreground">
-          Professor de Inglês com IA — Chrome com Gemini Nano
-        </footer>
-      </main>
+    <div className="min-h-screen bg-background">
+      {settings === null ? (
+        <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-4">
+          <main className="w-full max-w-2xl">
+            <WelcomeSettings
+              onStart={setSettings}
+              onCheckModelReady={() => aiRef.current!.checkRequirements()}
+              modelParams={modelParams}
+            />
+            <footer className="mt-8 text-center text-sm text-zinc-500">
+              Professor de Inglês com IA — Chrome com Gemini Nano
+            </footer>
+          </main>
+        </div>
+      ) : (
+        <ChatForm
+          aiService={aiRef.current}
+          settings={settings}
+          onSettingsChange={setSettings}
+          onBackToWelcome={() => setSettings(null)}
+          modelParams={modelParams}
+        />
+      )}
     </div>
   )
 }
